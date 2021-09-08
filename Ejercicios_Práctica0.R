@@ -1,0 +1,1 @@
+dado_honesto=sample(1:6, size = 100, replace = TRUE)
