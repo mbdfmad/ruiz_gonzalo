@@ -17,6 +17,7 @@ cambiosSigno(x)
 
 cambiosSignoPos=function(x){
   pos=c()
+
   for(k in seq(length(x)-1)){
 
     if( x[k]*x[k+1]<0 ){
