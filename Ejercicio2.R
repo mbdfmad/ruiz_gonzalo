@@ -1,5 +1,5 @@
 x=c(-12,-19,9,-13,-14,-17,8,-19,-10)
-x=sample(-20:20,9,replace = TRUE)
+x=sample(c(-20:-1,1:20),9,replace = TRUE)
 
 cambiosSigno=function(x){
 i=0

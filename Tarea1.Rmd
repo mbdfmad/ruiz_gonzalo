@@ -1,0 +1,374 @@
+---
+title: "Tarea1"
+author: "Gonzalo Ruiz Espinar"
+date: "9/15/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Ejercicio 0
+Empezaremos cargamos la libreria *tidyverse*.
+```{r, results='hide', message=FALSE,warning=FALSE}
+library(tidyverse)
+```
+
+Usando la función sample para crear un dado honesto con 100 números del 1 al 6.
+```{r}
+dado_honesto=sample(1:6, size = 100, replace = TRUE)
+dado_honesto
+```
+Dado que se trata de una variable discreta,  realizamos una tabla de frecuencia absoluta con el `tidyverse`:
+```{r}
+table(dado_honesto)
+```
+
+Y una tabla de frecuencias absolutas con el R básico:
+```{r}
+dado <-
+  data.frame(A = 1:100, dado_A = dado_honesto)
+
+dado %>% count(Dado=dado$dado_A)
+```
+
+Una tabla de frecuencias relativas con R básico:
+```{r}
+signif(prop.table(table(dado$dado_A)), 2)
+```
+
+y una tabla de frecuencias relativas con `tidyverse`:
+```{r}
+dado %>%
+  count(dado_A) %>%
+  mutate(dado_A, relFreq = prop.table(n), n=NULL)
+```
+
+A continuación creamos un dado cargado de manera que la probabilidad de que el número elegido valga 6 sea el doble que la probabilidad de elegir cualquiera de los cinco números restantes:
+```{r}
+pesos=c(1/7, 1/7, 1/7, 1/7, 1/7, 2/7)
+dado_cargado=sample(1:6, size = 100, replace = TRUE, prob=pesos)
+dado_cargado
+```
+
+Usamos las funciones  `rep()` y `seq()` para crear los siguientes vectores:
+
+```{r}
+rep(4:1,each=4)
+rep(1:5,times=seq(1,5))
+rep(1:4,4)
+```
+
+Utilizamos la tabla `mpg` para seleccionar las columnas cuyos nombres empiezan por c,
+y que las filas en las que la variable class toma el valor pickup.
+```{r}
+mpg %>% select (starts_with("c")) %>% filter(class == "pickup") -> mpg2
+head(mpg2)
+```
+
+Cargamos la tabla `census`:
+```{r}
+library(haven)
+census <- read_dta("data/census.dta")
+head(census)
+```
+
+¿Cuáles son las poblaciones totales de las regiones censales?:
+```{r}
+census %>% group_by(region) %>% summarise( poblacion=sum(pop) ) -> censoT
+head(censoT)
+```
+
+Representa esas poblaciones totales en un diagrama de barras (una barra por región censal):
+```{r}
+library(viridisLite)
+ggplot(censoT, aes(region, poblacion)) +
+  geom_col(fill=viridis(4))
+```
+
+Ordena los estados por población, de mayor a menor:
+```{r}
+census %>% arrange(desc(pop))
+```
+
+Crea una nueva variable que contenga la tasa de divorcios/matrimonios para cada estado.
+```{r}
+census %>% summarise( state, rateDivMa=divorce/marriage ) %>% arrange(rateDivMa)
+```
+
+Crear la tabla con estado, edad mediana y proporción de adultos:
+```{r}
+census %>%
+  summarise(Estado=state ,Prop18=pop18p/pop, EdadMediana=medage) %>%
+  arrange(EdadMediana) %>% head(10)
+```
+
+
+Histograma y curva de densidad de la variable `medage`
+```{r}
+ggplot(data=census)+geom_histogram(mapping = aes(x=medage,y=stat(density)),bins=10,fill="coral2")+
+geom_density(mapping = aes(medage))
+```
+
+
+
+
+### Ejercicio 1
+#### Introducción
+Empezaremos cargando el fichero de datos *cholesterol.csv* y creamos el *data.frame* llamado `chlstrl`.
+```{r, results='hide', message=FALSE,warning=FALSE}
+chlstrl <- read_csv("./data/cholesterol.csv")
+```
+
+Para obtener información básica sobre el conjunto de datos como cuantos registros tiene, el tipo de variables, el nombre de las columnas, el orden de magnitud de los registros podemos usar el comando `str()`.
+```{r}
+str(chlstrl)
+```
+
+```{r,include=FALSE}
+anyNA=anyNA(chlstrl)
+```
+
+En cuanto a la comprobación de datos de la tabla, debemos asegurarnos que no tenemos nigún registro vacio. El comando `anyNA()` nos dice que la respuesta a la pregunta de si tenemos observaciones vacias es `r anyNA`.
+```{r}
+anyNA(chlstrl)
+```
+De hecho si aplicamos la función `is.na()` que nos devuelve las posiciones de las observaciones vacias junto con la función `sum()` (en R TRUE equivale a un 1 y FALSE a un 0 cuando sumamos), obtenemos el número de registros vacios. 
+
+```{r}
+sum(is.na(chlstrl))
+```
+Por tanto cuando estemos trabajando con estos datos debemos quitar estas observaciones vacias. Otra forma de trabajar es quitarlas directamente de la tabla con el comando `na.omit()` pero en este caso hemos preferido no usarlo ya que quita la fila entera donde se encuentra la observación vacia y no queremos perder tantos datos.
+
+#### Análisis exploratorio
+
+```{r,include=FALSE}
+m=min(chlstrl$chol, na.rm = TRUE)
+n=max(chlstrl$chol, na.rm = TRUE)
+me=signif(mean(chlstrl$chol, na.rm = TRUE),5)
+md=median(chlstrl$chol, na.rm = TRUE)
+sd=signif(sd(chlstrl$chol, na.rm = TRUE),5)
+```
+
+A continuación procederemos a realizar un análisis exploratorio de los tipos de variables de la tabla, cuantitativas y categóricas. Un ejemplo de variable cuantitativa es la columna `chol` cuyo mínimo y máximo es `r m` y `r n` respectivamente. Presenta una media y mediana de `r me` y `r md` y una desviación estándar muestral de `r sd`. 
+
+```{r}
+min(chlstrl$chol, na.rm = TRUE)
+max(chlstrl$chol, na.rm = TRUE)
+mean(chlstrl$chol, na.rm = TRUE)
+median(chlstrl$chol, na.rm = TRUE)
+sd(chlstrl$chol, na.rm = TRUE)
+```
+Se puede resumir gráficamente todas estas variables estadísticas en un diagrama de cajas, donde se aprecia la mediana, el primer cuartil, el tercer cuartil y los datos típicos y atípicos:
+
+```{r}
+bxp_cty = boxplot(na.omit(chlstrl$chol), col="coral2")
+```
+
+Si representamos en un histograma la tabla de frecuencias absolutas obtenida del colesterol de la muestra de pacientes obtenemos:
+
+```{r}
+cortes = seq(min(chlstrl$chol,na.rm = TRUE), max(chlstrl$chol,na.rm = TRUE), length.out = 12)
+ggplot(data = na.omit(chlstrl)) +
+  geom_histogram(mapping = aes(chol), breaks = cortes,
+                 fill = "coral2", color="black")
+```
+
+Mientras que si representamos de forma conjunta la curva de densidad junto con el histograma (pero representando las frecuencias relativas) tenemos:
+
+```{r}
+ggplot(na.omit(chlstrl), aes(x = chol)) +
+  geom_histogram(aes(x = chol,y=stat(density)),
+                 breaks = cortes, fill = "coral2", color="black")  +
+  geom_density(mapping = aes(chol),color="darkslategrey", size=1.5)
+```
+
+
+Por último, para terminar de realizar el análisis exploratorio, realizamos un *violinplot*, en el que se nos brinda de información del un diagrama de cajas además de disponer de curva de densidad y la diospersión de los puntos: 
+
+```{r}
+ggplot(na.omit(chlstrl)) +
+  geom_violin(mapping = aes(x=0, y = chol)) + scale_x_discrete(breaks = c()) +
+  geom_boxplot(mapping = aes(y = chol), fill="coral2") +
+  geom_jitter(aes(x=0, y = chol),position = position_jitter(w=0.05, h= 0), col="darkslategrey")
+```
+
+
+Por otro lado tenemos como ejemplo de una variable categórica o factor es la columna `gender`. Por defecto, cuando hemos importado la tabla, la columna `gender` se ha guardado como `string`. Por tanto primero debemos cambiar el tipo de la columna `gender` a factor.
+
+```{r}
+chlstrl$gender=factor(chlstrl$gender)
+```
+
+```{r}
+class(chlstrl$gender)
+```
+
+Para saber cuántos hombres y mujeres en la muestra usamos la tabla de frecuencias absolutas:
+```{r}
+table(chlstrl$gender)
+
+```
+ o una tabla de frecuencias relativas, que nos dice el porcentaje de hombres y mujeres en tanto por 1. Esto se debe a que trabajamos con factores dicotómicos.
+```{r}
+prop.table(table(chlstrl$gender))
+```
+ Podemos usar un diagrama de barras para representar una tabla de frecuencias absolutas:
+```{r}
+ggplot(chlstrl) +
+  geom_bar(mapping = aes(x = gender), fill= c("coral","grey"))
+
+```
+ Dado que estamos interesados en trabajar en el sistema internacional, SI, realizamos el siguiente comando para cambiar las unidades de la altura, `height`, y del peso, `weight`. Con `mutate()` reemplazamos las columnas `height` y `weight` por las versiones en el Sistema Internacional.
+```{r,results='hide'}
+chlstrl %>% mutate(height=height*0.0254,weight=weight*0.454) -> chlstrlSI
+```
+```{r}
+head (chlstrlSI)
+```
+ 
+ 
+Usando el comando `mutate()` creamos la columna `BMI` (ya que no existe inicialmente la columna `BMI`, al usar `mutate()` se crea)
+```{r}
+chlstrlSI %>%
+  mutate("BMI" = weight/(height)^2) -> chlstrlSI
+head (chlstrlSI)
+```
+
+Usando el comando `cut()` creamos un vector de factores, `ageGroup`, dividiendo las edades en tres grupos.
+```{r}
+ageGroup=cut(chlstrlSI$age, breaks = seq(10,100,30))
+head(ageGroup)
+```
+Añadimos este vector a la tabla `chlstrlSI`:
+```{r}
+chlstrlSI %>% mutate(ageGroup) -> chlstrlSI
+head (chlstrlSI)
+```
+Para saber la media del nivel de colesterol y de BMI de las mujeres en cada uno de los grupos de edad. Usamos `group_by()` para agrupar por grupos de edad, `group_by`, el comando `filter()` para decir que sean mujeres, y con el comando `summarise()` creamos un nuevo *data.frame* donde calculamos la media del colesterol y de la media.
+```{r}
+chlstrlSI %>% group_by(ageGroup) %>% filter(gender=="female")  %>%
+  summarise(MediaChol=mean(chol,na.rm = TRUE), MediaBMI=mean(BMI,na.rm = TRUE))
+```
+
+### Ejercicio 2
+En primer lugar creamos el vector `x` de números enteros no nulos dado como ejemplo y un vector `y` que genera vectores aleatorios enteros no nulos.
+```{r}
+x=c(-12,-19,9,-13,-14,-17,8,-19,-10)
+y=sample(c(-20:-1,1:20),9,replace = TRUE)
+```
+
+```{r,echo=FALSE}
+head(x)
+```
+
+```{r}
+y=sample(c(-20:-1,1:20),9,replace = TRUE)
+```
+
+```{r,echo=FALSE}
+head(y)
+```
+Ahora, creamos una función que calcula cuantos cambios de signo tiene el vector:
+```{r}
+cambiosSigno=function(x){
+i=0
+  for(k in seq(length(x)-1)){
+    if( x[k]*x[k+1]<0 ){
+      i=i+1
+    }
+  }
+return(i)
+}
+```
+Y la funciónb que calcula en que posiciones se han producido los cambios de signo y devuelve un mensaje cuando no se ha producido ningún cambio:
+```{r}
+cambiosSignoPos=function(x){
+pos=c()
+  for(k in seq(length(x)-1)){
+    if( x[k]*x[k+1]<0 ){
+      pos=append(pos,k+1)
+    }
+  }
+  if( is.null(pos) == TRUE){
+    print("No hay ningún cambio de signo")
+    }else{
+      return(pos)
+    }
+}
+```
+### Ejercicio 3
+Queremos replicar las gráficas que aparecen en la sección 3 y 5 del libro R for Data Science. Guardamos cada gráfica en una variable y luego usamos el comando `grid.arrange`.
+```{r,results='hide', message=FALSE,warning=FALSE}
+library(gridExtra)
+```
+
+```{r}
+
+ggplot(data = mpg, mapping = aes(x = displ, y = hwy)) +
+  geom_point() +
+  geom_smooth(se = FALSE,method = 'loess',formula =y ~ x) -> g1
+ggplot(data = mpg, mapping = aes(x = displ, y = hwy, group = drv)) +
+  geom_point() +
+  geom_smooth(se = FALSE,method = 'loess',formula =y ~ x) -> g2
+ggplot(data = mpg, mapping = aes(x = displ, y = hwy, colour = drv)) +
+  geom_point() +
+  geom_smooth(se = FALSE,method = 'loess',formula =y ~ x) -> g3
+ggplot() +
+  geom_point(data = mpg, mapping = aes(x = displ, y = hwy, colour = drv)) +
+  geom_smooth(data = mpg, mapping = aes(x = displ, y = hwy),se = FALSE,method = 'loess',formula =y ~ x) -> g4
+ggplot() +
+  geom_point(data = mpg, mapping = aes(x = displ, y = hwy, colour = drv)) +
+  geom_smooth(data = mpg, mapping = aes(x = displ, y = hwy, linetype = drv),se = FALSE,method = 'loess',formula =y ~ x) -> g5
+ggplot(mpg, aes(x = displ, y = hwy)) +
+  geom_point(size = 4, color = "white") +
+  geom_point(aes(colour = drv)) -> g6
+grid.arrange(g1, g2, g3, g4,g5,g6, nrow = 3)
+```
+
+
+Ahora realizaremos una serie de consultas que realizaremos con el comando `filter()`. Primero cargamos la libreria necesaria:
+```{r}
+library(nycflights13)
+```
+
+Vuelos que tengan retraso en la hora de llegada de dos horas o más:
+```{r}
+filter(flights, arr_delay>=120 )
+```
+
+Vuelos que volaron a Houston:
+```{r}
+filter(flights, dest == "IAH" | dest == "HOU")
+```
+
+Vuelos cuya operadora fue United, American o Delta:
+```{r}
+filter(flights, carrier == "UA" | carrier == "AA" | carrier == "DL")
+```
+
+Vuelos que se realizaron en verano:
+
+```{r}
+filter(flights, month == 6 | month == 7 | month == 8)
+```
+
+No salieron tarde pero llegaron más de dos horas tarde:
+```{r}
+filter(flights, dep_delay<=0 , arr_delay>=120)
+```
+
+
+Vuelos que se retrasaron por lo menos una hora en la salida, pero recuperaron media hora:
+```{r}
+filter(flights, dep_delay-arr_delay<=30, dep_delay>=60)
+```
+
+Salieron entre medianoche y las 6 AM:
+```{r}
+filter(flights, dep_time>=0 & dep_time<=600)
+```
+
