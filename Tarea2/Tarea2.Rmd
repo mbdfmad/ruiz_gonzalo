@@ -1,0 +1,260 @@
+---
+title: "Tarea2"
+author: "Gonzalo Ruiz Espinar"
+date: "9/21/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Ejercicio 1 
+
+
+## Apartado 1
+Empezaremos cargamos la libreria *tidyverse*.
+```{r, results='hide', message=FALSE,warning=FALSE}
+library(tidyverse)
+```
+
+Creamos un vector llamado `valor` y otro de probabilidad llamado `prob`:
+```{r}
+valor = c(0,1,2,3)
+prob = c(64/125, 48/125, 12/125, 1/125)
+```
+
+La media se calcula con el producto escalar: 
+```{r}
+media = sum(valor * prob)
+media
+```
+
+La varianza teórica se puede calcular de la siguiente forma: 
+
+```{r}
+sum((valor-media)^2*prob)
+```
+
+## Apartado 2
+
+Creamos un vector llamado `valor` y otro de probabilidad llamado `prob`:
+```{r}
+valor = c(0,1,2,3)
+
+prob = c(64/125, 48/125, 12/125, 1/125)
+```
+
+
+Combinamos `sample` con `replicate` para simular cien mil muestras,`k`, de tamaño 10 o 30, `n` de esta variable X1. 
+```{r}
+k = 100000
+n1 = 10
+n2 = 30
+mediasMuestrales1 = replicate (k, {
+  muestra = sample(valor, n1, replace = TRUE,prob = c(64/125, 48/125, 12/125, 1/125))
+  mean(muestra)
+})
+
+mediasMuestrales2 = replicate (k, {
+  muestra = sample(valor, n2, replace = TRUE,prob = c(64/125, 48/125, 12/125, 1/125))
+  mean(muestra)
+})
+```
+Estudiamos la distribución de las medias muestrales para muestras de 10
+```{r}
+ggplot() +
+  geom_histogram(aes(x = mediasMuestrales1), bins = 17, fill="coral1", color="black") +
+  geom_vline(xintercept = mean(mediasMuestrales1), col="black", linetype="dashed", size=0.7)
+```
+Y para medias muestrales para muestras de 30 repetimos el histograma.
+```{r}
+ggplot() +
+  geom_histogram(aes(x = mediasMuestrales2), bins = 16, fill="coral2", color="black") +
+  geom_vline(xintercept = mean(mediasMuestrales1), col="black", linetype="dashed", size=0.7)
+```
+Otra gráfica que nos ayuda a ilustrar los datos es el *boxplot*.
+```{r}
+bxp_cty = boxplot(na.omit(mediasMuestrales1), mediasMuestrales2, col="coral2",names = c("Muestras de 10","Muestras de 30"),ylab="Medias")
+```
+
+Por ejemplo podemos ver como cuando aumentamos el tamaño de las muestras (de 10 a 30) la varianza de la distribución de la media muestral disminuye. De hecho, sabemos que la desviación estándar de la distribución de la media muestral cumple que $s_1/s_2 \sim \sqrt{n_2/n_1} = \sqrt 3$, lo cual se cumple en nuestro caso con error menor de un 1%:
+```{r}
+(sqrt(3) - sd(mediasMuestrales1)/sd(mediasMuestrales2)) / sqrt(3)
+```
+
+
+## Apartado 3
+Suponiendo que X1 y X2, para saber los posibles valores de la suma usamos el mínimo valor de cada variable, 0, y el máximo de cada una, 2 y 3. Es decir que la suma puede ir de 0 a 5. Para obtener la tabla de probabilidades realizaremos el siguiente cálculo.
+
+```{r}
+valor1 = c(0,1,2,3)
+valor2 = c(0,1,2)
+prob1 = c(64/125, 48/125, 12/125, 1/125)
+prob2 = c(1/2,1/4,1/4)
+```
+En primer lugar realizamos una tabla con todos los posibles resultados que podemos obtener de cada variable sumado. Por ejemplo: en la posición 13 (empezando a contar desde el 0) de la matriz tenemos 1+3=4, en la posición 31 tenemos 3+1=4 o en la posición 21 tenemos 2+1=3.
+```{r}
+posSum = outer(valor2,valor1, FUN = "+")
+posSum
+```
+A continuación creamos otra tabla donde se incluye la multiplicación de todas las posibles probabilidades de obtener un resultado concreto en cada variable. Por ejemplo: en la posición 12 (empezando a contar desde el 0) de la matriz tenemos la probabilidad de que obtengamos en la primera variable un 1 y en la segunda un 2, $\frac{48}{125}\cdotp\frac{1}{4}=\frac{18}{125}$.
+
+```{r}
+posProb = prob2 %*% t(prob1)
+posProb
+```
+
+Pasamos estas matrices a un *dataframe* donde tengamos 2 columnas, una con las posibles sumas y otra con las probabilidades de obtener un resultado concreto en cada variable.
+```{r}
+data.frame(c(posProb),c(posSum)) -> data
+```
+
+Un vez que tenemos la tabla `data`, calculamos la tabla de probabilidades de la suma de X1 y X2, agrupando todas las posibles sumas, y sumando las probabilidades asociadas a cada suma.
+```{r}
+data %>% group_by(dado=c.posSum.) %>% summarize(prob=sum(c.posProb.))-> probabilidades
+probabilidades
+```
+## Apartado 4
+Una vez que tenemos la tabla de probabilidades, calculamos la media de la suma de X1 y X1 de la forma habitual:
+```{r}
+weighted.mean(probabilidades$dado,probabilidades$prob )
+```
+
+Para comprobar que hemos realizado bien el análisis, vamos a simular este caso. Generamos dos conjuntos X1 y X1 y los sumamos.
+
+```{r}
+k = 100000
+X1 = sample(valor1, k, prob = prob1, replace = TRUE)
+X2 = sample(valor2, k, prob = prob2, replace = TRUE)
+suma = X1+X2
+mean(suma)
+```
+Vemos que obtenemos la misma media que el cálculo teórico.
+
+# Ejercicio 2
+La tabla de datos no cumple los principios de tidy data que hemos visto en clase. Tu tarea en este ejercicio es explicar por qué no se cumplen y obtener una tabla de datos limpios con la misma información usando tidyR.
+```{r, results='hide', message=FALSE,warning=FALSE}
+library(readr)
+```
+Empezamos haciendo una pequeña visualización de los datos para hacernos una idea de la tabla:
+```{r}
+datos <- read_csv("data/testResults.csv")
+head(datos)
+```
+
+En primer lugar separamos la columna `gender_age` en dos columna, `gender` y `age`, y a continuación transformamos las columnas de `week` en dos columnas que dices que semana es y el valor asociado.
+```{r}
+datosLimpios <- datos %>%
+  separate(gender_age, into = c("gender", "age"), sep = "_", convert = TRUE) %>%
+  pivot_longer(c("week1", "week2", "week3", "week4", "week5"), names_to = "week_number",
+               values_to = "value")
+```
+Después transformamos la columna de `week`y la de `gender` en factores.
+```{r}
+datosLimpios$gender=factor( datosLimpios$gender, levels = c("m","f"),labels = c("Male","Female") )
+datosLimpios$week_number=factor(datosLimpios$week_number,levels = paste("week", 1:7, sep = ""),labels =
+                                  paste("week", 1:7, sep = "") )
+```
+Mostramos el resultado
+```{r}
+head(datosLimpios)
+```
+
+
+# Ejercicio 3
+## Apartado 1
+Nuestro objetivo es determinar que variable influye más en el precio. Empezaremos una limpieza de los datos, `diamonds`:
+```{r}
+head(diamonds)
+```
+Ya que la profundidad `depth`, la altura `table`y las longitudes `x`, `y` y `z` dependen de alguna manera del `carat`, solo consideraremos esta variables relativa a las dimensiones. Solo consideraremos pues `carat`, `clarity`, `color` y `cut`.
+En primer lugar compararemos el precio y el color de los diamantes. Vemos como no hay una gran variación de la mediana de los valores del precio y además tienen un primer y tercer cuartil relativamente grande lo cual nos dice que no podemos concluir que la variación del precio es grande.
+```{r}
+ggplot(diamonds)+
+geom_boxplot(mapping = aes(x = color, y = price))
+```
+```{r}
+ggplot(diamonds)+
+  geom_boxplot(mapping = aes(x = color, y = price))+
+  coord_cartesian(ylim = c(0, 9000))
+```
+
+Por otro lado tenemos la claridad, donde sucede algo parecido al caso anterior  y por tanto, aunque aumente el precio con la claridad, la variación no es muy grande.
+```{r}
+ggplot(diamonds)+
+  geom_boxplot(mapping = aes(x = clarity, y = price))+
+  coord_cartesian(ylim = c(0, 9000))
+```
+Por otro lado tenemos el corte similar al coso anterior. 
+```{r}
+ggplot(diamonds)+
+  geom_boxplot(mapping = aes(x = cut, y = price))+
+  coord_cartesian(ylim = c(0, 9000))
+```
+Por último tenemos el peso, que como podemos ver en la gráfica, tiene una tendencia lineal y por tanto podemos concluir que es la variable que mas influye en el precio. 
+```{r}
+ggplot(data = diamonds, mapping = aes(x = carat, y = price)) +
+  geom_point()
+```
+
+
+## Apartado 2
+Tenemos que visualizar la en número de casos de tuberculosis por país, año y sexo. Empezaremos una limpieza de los datos, `who` y `population`:
+```{r}
+head(population)
+head(who)
+```
+
+En primer lugar juntamos las columnas de los casos de tuberculosis en una nueva columna `TBcases`.
+```{r}
+who %>%
+  pivot_longer(starts_with("new"), names_to = "TBcases",values_drop_na = TRUE)-> whoLimpio
+head(whoLimpio)
+```
+Como vemos, la columna de `TBcases` contiene información del género, rango de edad y tipo de tuberculosis. Procedemos a separarla:
+```{r}
+ whoLimpio %>%
+separate(TBcases, into = c("A", "MethodDiagnosis","GenderAux"), sep = c("_"), convert = TRUE) %>%
+  separate(GenderAux,into = c("Gender", "AgeGroup"), sep = 1, convert = TRUE) %>%
+select(-A) -> whoLimpio
+head(whoLimpio)
+```
+
+Convertimos a factor las columnas de `Gender`, `AgeGroup` y `MethodDiagnosis`:
+```{r}
+whoLimpio$Gender=factor( whoLimpio$Gender, levels = c("m","f"),labels = c("Male","Female") )
+whoLimpio$AgeGroup=factor( whoLimpio$AgeGroup, levels = c(14,1524,2534,3544,4554,5564,65),
+                           labels = c("0-14","15-24","25-34","35-44","45-54","55-64","65") )
+head(whoLimpio)
+```
+
+Dado que posteriormente estamos interesados en el número de casos por 100k habitantes, unimos las tablas `who` y `population`
+```{r}
+whoLimpio<-left_join(whoLimpio,population, by=c("country"="country","year"="year"))
+head(whoLimpio)
+```
+
+Dado que si graficamos a todos los paises, habría tanta información en la gráfica que no se podría obtener ninguna conclusión visual, hemos dedicidido filtrar de alguna manera nuestros datos. Por ejemplo, en primer lugar representamos la incidencia de tuberculosis de aquellos paises que tengan más de 50000 casos por año:
+
+```{r,message=FALSE,warning=FALSE}
+na.omit(whoLimpio)  %>% group_by(country,year,Gender) %>% summarise(CasosTotales=sum(value),CasosPor100kHabi=sum(value)*100000/(population)) %>%
+  filter(year>1995)  %>%  filter(CasosTotales>50000) %>%
+ # filter(substr(country,1,2) == "Ba") %>%
+ggplot(aes(x = year, y = CasosTotales)) +
+  geom_line(aes(colour=country,linetype=Gender,  group=interaction(Gender, country)))
+```
+
+Aquí representamos la incidencia de tuberculosis de aquellos paises cuyo nombre empiece por la letra B:
+
+```{r,message=FALSE,warning=FALSE}
+na.omit(whoLimpio)  %>% group_by(country,year,Gender) %>%
+  summarise(CasosTotales=sum(value),CasosPor100kHabi=sum(value)*100000/(population)) %>%
+  filter(year>1995)   %>%
+  filter(substr(country,1,1) == "B") %>%
+  ggplot(aes(x = year, y = CasosPor100kHabi)) +
+  geom_line(aes(colour=country,linetype=Gender,  group=interaction(Gender, country)))
+```
+
