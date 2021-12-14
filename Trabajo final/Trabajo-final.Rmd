@@ -1,0 +1,626 @@
+---
+title: "Proyecto Final de Curso"
+author: "Nicolás Núñez de Cela Román, Gonzalo Ruiz Espinar y Pablo Soriano González"
+date: "04/12/2021"
+output:
+  github_document
+    toc: yes
+    toc_depth: 3
+    number_sections: yes
+    theme: united
+    highlight: tango
+  # html_document:
+  #   toc: yes
+  #   toc_depth: 3
+  #   number_sections: yes
+  #   theme: united
+  #   highlight: tango
+  # pdf_document:
+  #   toc: yes
+  #   toc_depth: 3
+  #   number_sections: yes
+  #   highlight: tango
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preliminares
+
+Cargamos las librerías que vamos a necesitar.
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+library(tidyverse)
+library(GGally)
+library(caret)
+library(ROCR)
+library(MLTools)
+library(ROSE)
+library(rpart)
+library(rpart.plot)
+library(partykit)
+library(ggcorrplot)
+library(corrplot)
+```
+
+El *dataset* que vamos a utilizar contiene datos sobre la lluvia en Australia durante casi los últimos 10 años. Se puede utilizar para predecir si va a llover un día o no. Las fuentes de los datos son diversas estaciones meteorológicas de australia y el *dataset* se puede encontrar aquí:  [https://www.kaggle.com/jsphyg/weather-*dataset*-rattle-package](https://www.kaggle.com/jsphyg/weather-*dataset*-rattle-package).
+
+Cargamos el fichero de los datos:
+
+```{r}
+datos <- read.csv("./data/weatherAUS.csv", header = TRUE, sep = ",")
+```
+
+También se puede utilizar la función de tidyverse para leer csv:
+
+```{r}
+datostiny <- read_csv("./data/weatherAUS.csv")
+```
+
+# Análisis exploratorio
+
+Para conocer una primera información sobre el conjunto de datos, ejecutamos el siguiente comando, que nos permite conocer cuántas observaciones tiene el *dataset* y cuántas variables, además del tipo de dato que es cada una de ellas y sus primeros valores.
+
+```{r}
+str(datos)
+```
+Como primer comentario, vemos que hay variables de tipo numérico (entre las cuales hay enteros *int* o reales *num*) o de tipo carácter. También se observa que los primeros valores de algunas columnas son, en su mayoría, NA.
+
+Para saber algo más de información de las columnas del *dataset*, ejecutamos el comando *summary* a continuación.
+
+```{r}
+summary(datos)
+```
+Este comando nos ha aportado información sobre todo de las variables numéricas, de la que nos dice el valor mínimo y el máximo, el primer y tercer intercuartil, la media y la mediana y el número de NA's. 
+
+En cuanto a este último aspecto, presentamos de forma separada los NA's de cada variable porque hay que realizar algún tratamiento sobre ellos. Estos son:
+
+```{r}
+datos %>%
+  select(everything()) %>%
+  summarise_all(funs(sum(is.na(.))))
+```
+
+## Cambio de formato de las columnas
+
+Lo primero que tenemos que hacer, observando los resultados anteriores, es modificar el formato de las columnas de nuestro *dataset*. Para ello, primero cambiamos el formato de la columna *Date* a tipo fecha:
+
+```{r}
+datos <- datos %>%
+  mutate(Date = as.Date(Date))
+```
+
+Después, las variables del *dataset* que son de tipo *character* las vamos a convertir a factor, pues son variables categóricas. Estas son: *Location, WindGustDir, WindDir9am, WindDir3am, RainToday, RainTomorrow*.
+
+```{r}
+datos <- datos %>%
+  mutate(Location = as.factor(Location), WindGustDir = as.factor(WindGustDir), 
+         WindDir3pm = as.factor(WindDir3pm), WindDir9am = as.factor(WindDir9am),
+         RainToday = as.factor(RainToday), RainTomorrow = as.factor(RainTomorrow))
+```
+
+Comprobamos que las variables son ahora del tipo que queremos:
+
+```{r}
+str(datos)
+```
+Vemos que ahora el comando *str(datos)* nos dice cuántos niveles tiene cada variable tipo factor y sus primeros niveles.
+
+## Tratamiento de NA
+
+Nos fijamos en la respuesta del str para ver los NA, pero si queremos saber dónde están los NA concretamente, utilizamos:
+
+```{r}
+whereNA = which(is.na(datos), arr.ind = TRUE)
+
+
+whereNA[1:5,]
+```
+Las columnas con más datos ausentes resultan ser *Evaporation*, *Sunshine*, *Cloud9am* y *Cloud3pm*, cuyo número de *outliers* es:
+
+```{r}
+sum(is.na(datos$Sunshine))
+sum(is.na(datos$Evaporation))
+sum(is.na(datos$Cloud3pm))
+sum(is.na(datos$Cloud9am))
+```
+
+Si eliminamos las filas con valores ausentes directamente nos quedamos con muy pocas observaciones (56420). Una posible opción sería eliminar estas 4 columnas y a posteriori eliminar las observaciones con valores ausentes. No obstante, los datos sobre la presencia de nubes podrían resultar muy interesantes para predecir la probabilidad de lluvia, por lo que estas columnas no nos conviene eliminarlas directamente. Sin embargo, las columnas *Sunshine* y *Evaporation* si que las eliminamos.
+
+```{r}
+datos <- datos %>% 
+  select(-Sunshine, -Evaporation)
+```
+
+Para tratar de conservar la información sobre las nubes (*Cloud9am*, *Cloud3pm*) y perder el menor número de observaciones creamos una nueva columna, *Cloud.* Para las observaciones que solo tienen un dato sobre las nubes (*Cloud9am* o *Cloud3pm*) esta columna tomará ese valor. Por otro lado, para las observaciones que tienen dos datos haremos la media de ambos. Si ambos son datos ausentes este dato será ausente. Finalmente eliminamos las columnas auxiliares que hemos creado y las dos columnas originales dejando solo la nueva columna que hemos creado que resume la información de las dos anteriores. Luego eliminamos los datos ausentes.
+
+```{r}
+
+datos$Cloud[is.na(datos$Cloud9am)] <- datos$Cloud3pm[is.na(datos$Cloud9am)]
+datos$Cloud[is.na(datos$Cloud3pm)] <- datos$Cloud9am[is.na(datos$Cloud3pm)]
+datos$Cloud[is.na(datos$Cloud)] <- 
+  (datos$Cloud3pm[is.na(datos$Cloud)]+datos$Cloud9am[is.na(datos$Cloud)])/2
+
+datos$Nas3pm <- is.na(datos$Cloud3pm)
+datos$Nas9am <- is.na(datos$Cloud9am)
+datos$CloudData <- factor(datos$Nas3pm*datos$Nas9am,levels = c(1,0),
+                          labels = (c(FALSE,TRUE)))
+
+datos <- datos[datos$CloudData==TRUE,]
+
+datos <- datos %>% 
+          select(-Cloud3pm, -Cloud9am, -CloudData, -Nas3pm, -Nas9am) %>% 
+          drop_na()
+```
+
+Explorando el *dataset* hemos encontrado que una de las observaciones tiene un valor de *Cloud* = 9, valor que no tiene sentido teniendo en cuenta que *Cloud* es una variable categórica que admite valores hasta 8. Por tanto, eliminamos esta observación suponiendo que se debe a un error de medida o de digitalización de los datos.
+
+```{r}
+datos <- datos %>% 
+  filter(Cloud <= 8, Cloud >= 0)
+```
+
+Al haber hecho la media entre los dos valores de *Cloud* ahora la nueva variable no solo puede tomar valores enteros de 0 a 8 si no que también puede tomar valores en la mitad entre dos enteros. Para no tener 17 grupos distintos para la variable Cloud creamos una nueva variable categórica llamada *CloudLevels.* Esta variable la definimos de manera que tendremos 9 niveles, igual que las variables Cloud originales, incluyendo cada número decimal con su entero correspondiente, 0.5 con 0, 1.5 con 1, etc.
+
+```{r}
+cortes = seq(-0.5,8.5)
+datos$CloudLevels = cut(datos$Cloud, breaks = cortes)
+```
+
+Finalmente nuestro *dataset* queda con 78849 observaciones sin datos ausentes y tenemos una única variable sobre la presencia de nubes en el día en vez de dos. Pensamos que es un número suficiente de observaciones para realizar los análisis que se detallan a continuación.
+
+## Análisis numérico básico
+
+Una vez hemos quitado los NA y cambiado el formato de los datos, mostramos otra vez el resumen del *dataset*:
+
+```{r}
+str(datos)
+```
+
+En el resumen anterior vemos que ahora tenemos 78848 observaciones y 21 variables y que el tipo de dato es el que hemos definido anteriormente para cada variable. Construimos con ello la siguiente tabla, dividiendo las variables en numéricas y categóricas.
+
+$$
+\begin{array}{|c|c|}
+\hline
+\text{Numéricas} & \text{Factores} \\
+\hline
+\text{MinTemp} &  \text{Location} \\
+\text{MaxTemp} &  \text{WindGustDir} \\
+\text{Rainfall} &  \text{WindDir9am} \\
+\text{Temp9am} &  \text{WindDir3pm} \\
+\text{Temp3pm} &  \text{RainToday} \\
+\text{WindSpeed9am} &  \text{RainTomorrow} \\
+\text{WindSpeed3pm} &  \text{} \\
+\text{Humidity9am} &  \text{} \\
+\text{Humidity3pm} &  \text{} \\
+\text{Cloud} &  \text{} \\
+\text{Pressure9am} &  \text{} \\
+\text{Pressure3pm} &  \text{} \\[3mm]
+\hline
+\end{array}
+$$
+De entre los dos tipos de variables anteriores, vamos a estudiar alguna de cada tipo:
+
++ Variables numéricas:
+
+Estudiamos la variable *Temp9am*, que es la temperatura medida en un lugar a las 9 am. 
+
+Mostramos primero un resumen básico de los valores numéricos que contiene la variable:
+
+```{r}
+summary(datos$Temp9am)
+```
+En Australia tenemos un rango de temperaturas medidas a las 9 de la mañana que oscila entre -1ºC y 39.40ºC. También vemos que la media y la mediana se parecen mucho, lo que indica que no hay muchos *outliers* ni por encima ni por debajo. Su rango intercuartílico (la diferencia entre el primer y el tercer cuartil) es:
+
+```{r}
+IQR(datos$Temp9am)
+```
+
+También podemos representar su distribución con un histograma:
+
+```{r}
+datos %>%
+ggplot(aes(x = Temp9am)) +
+geom_histogram(aes(y=stat(density)), bins = 10, fill="tan3", color = "black") +
+  geom_density(color = "red", size=2, adjust = 1.5)
+```
+
+Es una distribución que se acerca a ser simétrica pero no lo es, por lo que pensamos que tampoco es normal (tenemos tantos datos que si fuese normal la distribución debería representar este hecho en la gráfica anterior). De todas formas, vamos a comprobarlo con un boxplot.
+
+```{r}
+boxplotTemp = boxplot(datos$Temp9am, col = "orange")
+```
+
+El boxplot nos aporta información más detallada, pues parece que solo hay *outliers* por encima de la mediana. Es decir, se detectan valores muy altos de temperatura en algunos puntos, pero para ver cuántos y cuáles son, podemos mostrar el resultado del siguiente comando:
+
+```{r}
+boxplotTemp$out
+```
+Vemos que, efectivamente, todos los *outliers* son para temperaturas altas, tal y como muestra el gráfico. 
+
+La información del boxplot se puede completar de alguna forma mostrando la densidad de los puntos, como se hace a continuación:
+
+
+```{r}
+ggplot(data = datos) + 
+  geom_violin(mapping = aes(x=0,y = Temp9am))+
+  scale_x_discrete(breaks = c()) +
+  geom_boxplot(mapping = aes(y = Temp9am), fill = "darkseagreen")+
+  geom_jitter(aes(x=0,y=Temp9am),position= position_jitter(w=0.075,h=0),
+              col="blue", alpha = 0.05)
+```
+
+El *violin plot* nos muestra la función de densidad de los puntos, lo cual nos sirve para comprobar que la distribución no es simétrica. 
+
+Para corroborar que no se trata de una distribución normal, representamos un qqplot:
+
+```{r}
+ggplot(datos, aes(sample = Temp9am)) + 
+  geom_qq(alpha = 0.2, color = "blue") + 
+  geom_qq_line()
+```
+
+Este gráfico nos muestra que no se trata de una variable normal, pues los puntos de los extremos se alejan del comportamiento esperado representado por la línea negra.
+
+Todo esto nos ha servido para hacernos una idea de cómo se comporta y distribuye la variable *Temp9am*.
+
++ Variables categóricas:
+
+Vamos a analizar la dirección del viento con los valores medidos a las 9am. Esto viene descrito por la variable *WindDir9am.* Las frecuencias absolutas con las que aparecen estos valores son:
+
+```{r}
+datos %>% 
+  count(WindDir9am)
+```
+
+Cuyas proporciones son las siguientes:
+
+```{r}
+datos %>% 
+  count(WindDir9am) %>% 
+  mutate(WindDir9am,prop.table(n),n= NULL)
+```
+
+Representamos un diagrama de barras para poder observar esta información de manera visual:
+
+```{r}
+ggplot(datos) +
+  geom_bar(mapping = aes(x = WindDir9am))
+```
+
+Vemos que todas las direcciones tienen aproximadamente el mismo número de datos. Vamos a agruparlos en 4 direcciones, con el fin de tener la información agrupada de forma que sea más facil de entender y utilizar.
+
+```{r}
+norte <- c("N","NNE","NE","NNW")
+este <- c("E","ENE","ESE","SE")
+oeste <- c("NW","W","WNW","WSW")
+sur <- c("S","SSW","SSE","SW")
+
+datos$WindDir9am4[datos$WindDir9am %in% norte] <- "N"
+datos$WindDir9am4[datos$WindDir9am %in% este] <- "E"
+datos$WindDir9am4[datos$WindDir9am %in% oeste] <- "W"
+datos$WindDir9am4[datos$WindDir9am %in% sur] <- "S"
+
+ggplot(datos) +
+  geom_bar(mapping = aes(x = WindDir9am4, fill = WindDir9am4))
+```
+
+Vemos con este gráfico que se recoge un número diferente de medidas en función de la dirección del viento.
+
+Como esta transformación es de utilidad, vamos a repetirla para la variable *WindDir3pm*.
+
+```{r}
+norte <- c("N","NNE","NE","NNW")
+este <- c("E","ENE","ESE","SE")
+oeste <- c("NW","W","WNW","WSW")
+sur <- c("S","SSW","SSE","SW")
+
+datos$WindDir3pm4[datos$WindDir3pm %in% norte] <- "N"
+datos$WindDir3pm4[datos$WindDir3pm %in% este] <- "E"
+datos$WindDir3pm4[datos$WindDir3pm %in% oeste] <- "W"
+datos$WindDir3pm4[datos$WindDir3pm %in% sur] <- "S"
+
+ggplot(datos) +
+  geom_bar(mapping = aes(x = WindDir3pm4, fill = WindDir3pm4))
+```
+Vemos que la distribución cambia en función de la hora del día.
+
+## Consulta de distinta información derivada del conjunto de datos
+
+En esta sección, queremos conseguir cierta información sobre algunas variables de nuestro *dataset* bajo ciertas condiciones: 
+
++ Temperaturas medias por ciudad:
+
+Sería lógico pensar que la temperatura variase en función del lugar donde se mide. Por ello, a continuación se muestra la temperatura media para cada variable relacionada con la temperatura de nuestro *dataset* en función de la ciudad.
+
+```{r}
+datos %>% 
+  group_by(Location) %>% 
+  summarise(TempMax = mean(MaxTemp), TempMin = mean(MinTemp),
+            TempMedia9am = mean(Temp9am), TempMedia3pm = mean(Temp3pm)) %>% 
+  arrange()
+```
+
++ Dirección predominante del viento según la ciudad:
+
+También es posible que la dirección del viento cambie en función de la ciudad en la que se mida, dependiendo de la ubicación u orientación de esta.
+
+```{r}
+datos %>% 
+  group_by(Location) %>% 
+  count(WindDir9am4) %>% 
+  arrange(Location,desc(n)) %>% 
+  filter(row_number() == 1) %>% 
+  mutate(n = NULL, PredominatWindDir = WindDir9am4, WindDir9am4 = NULL)
+```
+
++ Medias de lluvia, humedad y temperatura en función de la cantidad de nubes:
+
+La cantidad de nubes podría influir en variables como son la media de la lluvia ese día, de la humedad a las 9am y a las 3pm y de la temperatura a las 9am y a las 3pm.
+
+```{r}
+datos %>% 
+  group_by(CloudLevels) %>%
+  summarise(LluviaMedia = mean(Rainfall), Humed9amMedia = mean(Humidity9am),
+            Humed3pmMed = mean(Humidity3pm), Temp9amMed = mean(Temp9am),
+            Temp3pmMed = mean(Temp3pm))
+```
+
+Tal y como cabría esperar vemos que a mayor nubosidad la media de la lluvia aumenta. También vemos que la humedad aumenta en ambos casos conforme aumenta la presencia de nubes y que se observan menores temperaturas también en este caso en ambas horas.
+
+
+## Comportamiento de ciertas variables frente a otras
+
+Nos interesa comprobar de forma gráfica y exploratoria cómo se comportan unas variables frente a otras. 
+
+Una primera visualización general la podemos obtener usando la función *ggpairs*:
+
++ GGPairs
+
+```{r}
+paraggpairs <- datos %>% 
+  select("MinTemp","MaxTemp","Rainfall","WindDir9am4","WindSpeed9am","Humidity9am",
+         "Pressure9am","Temp9am","RainToday","CloudLevels")
+
+library(GGally)
+ggpairs(paraggpairs, progress = FALSE, mapping = ggplot2::aes(color = RainToday),
+  lower = list(combo = wrap("facethist", binwidth = 0.25)))
+```
+
++ ¿Afecta la dirección del viento a su velocidad?
+
+```{r}
+ggplot(datos) +
+  geom_boxplot(mapping = aes(x = WindDir9am4, y = WindSpeed9am, fill = WindDir9am4)) +
+  geom_jitter(aes(x = WindDir9am4, y = WindSpeed9am), width = 0.1, alpha = 0.3)
+```
+
+Dado que la dirección del viente solo puede tomar valores enteros, observamos franjas donde no tenemos datos. Los boxplots nos permiten comprobar que no existen diferencias relevates en la velocidad del viento entre las distintas direcciones.
+
+```{r}
+ggplot(datos) +
+  geom_density(aes(x = WindSpeed9am, color = WindDir9am4))
+```
+
+Vemos que las distribuciones de velocidad son muy similares para las 4 direcciones.
+
++ ¿Relación entre la humedad a las 9 de la mañana y la presión?
+
+```{r}
+ggplot(datos) +
+  geom_point(aes(Humidity9am, Pressure9am, col = RainToday))
+```
+
+En este gráfico podemos observar que para los datos que presentan lluvia tenemos mayor humedad y menor presión.
+
++ ¿Y entre la temperatura y la presión?
+
+```{r}
+ggplot(datos) +
+  geom_point(aes(Temp9am, Pressure9am, col = RainToday))
+```
+
+Vemos que los días que presentan lluvia presentan menor presión a las 9am. También observamos que a mayores temmperaturas las presiones son menores en general.
+
+# Contraste de hipótesis
+  Con el fín de comprobar si la diferencia de la temperatura media en dos ciudades de Australia es debido a una fluctuación estadística de las muestras tomadas, o si se corresponde a los valores de la población.
+
+  En primer lugar, comprobaremos si las temperaturas medias en dos ciudades de Australia son diferentes con una significancia estadística del 95% o si, sin embargo, la diferencia se podría explicar debido a las desviaciones de la media al coger una muestra de variables aleatorias.
+  
+  Realizamos el t-test de los siguientes vectores, que contienen las temperaturas máximas medias en el año 2010 en las ciudades de Melbourne y Albury.
+  
+```{r}
+datos %>% filter(format(Date,format="%Y")==2010, Location %in% c("Melbourne")) %>% 
+  select(MaxTemp) %>% t() %>% as.vector() -> TempMelbourne
+datos %>% filter(format(Date,format="%Y")==2010, Location %in% c("Albury")) %>% 
+  select(MaxTemp) %>% t() %>% as.vector() -> TempAlbury
+```
+
+Tal y como nos revela el p-valor de la hipótesis nula, menor a 0.05, vemos que podemos afirmar que la media de las temperaturas máximas en Melbourne es mayor que la de Albury con una significancia mayor al 95%.
+
+```{r}
+t.test(TempMelbourne,TempAlbury,alternative = "greater", conf.level = 0.95)
+```
+
+Si repetimos el ejercicio para otros puntos metereológicos, como MelbourneAirport y Albury, vemos que aunque en el año 2010 la temperatura máxima media haya sido mayor en el primero de los puntos, no podemos afirmar que este resultado sea significativo.
+
+```{r}
+datos %>% filter(format(Date,format="%Y")==2010, Location %in% c("MelbourneAirport")) %>% 
+  select(MaxTemp) %>% t() %>% as.vector() -> TempMelbourneAirport
+datos %>% filter(format(Date,format="%Y")==2010, Location %in% c("Albury")) %>% 
+  select(MaxTemp) %>% t() %>% as.vector() -> TempAlbury
+t.test(TempAlbury, TempMelbourneAirport,alternative = "greater", conf.level = 0.95)
+```
+
+# Regresión lineal
+
+En este apartado haremos regresión lineal y ajustaremos la temperatura máxima de cada día frente a la temperatura a las 9 am, que son dos variables que cabría esperar que estuvieran relacionadas. Hacemos un modelo y obtenemos los coeficientes.
+
+```{r}
+(modelo = lm(MaxTemp ~ Temp9am, data=datos))
+b0=modelo$coefficients[1]
+b1=modelo$coefficients[2]
+```
+
+A continuación graficamos el diagrama de dispersión de estas dos variables y el ajuste que hemos obtenido.
+
+```{r}
+(plt = ggplot(datos) +
+  geom_point(aes(y = MaxTemp, x = Temp9am), col = "darkgreen") +
+  geom_abline(intercept = b0, slope = b1, color="blue", size = 1.5))
+```
+
+Vemos que las variables están estrechamente correlacionadas. Si calculamos el coeficiente de correlación ($R^2$) obtenemos:
+
+```{r}
+cor(datos$Temp9am, datos$MaxTemp)^2
+```
+
+Este valor nos indica que la temperatura a las 9 am está explicando el 80.6% del comportamiento de la temperatura máxima.
+
+Ahora podemos usar este modelo lineal para, por ejemplo, predecir la temperatura máxima de un día en el que a las 9am tenemos una temperatura de 10º.
+
+```{r}
+newTemp = 20
+(MaxTempEstimada = b0 + b1 * newTemp)
+```
+
+Vemos que la temperatura máxima estimada resulta ser de 26º.
+
+Realizamos ahora gráficos diagnósticos para estudiar el comportamiento de los residuos en nuestro modelo.
+
+```{r}
+par(mfrow = c(2, 2))
+x = datos$Temp9am  
+y = datos$MaxTemp
+plot(x, y)
+abline(lm(y ~ x), col="red", lwd=2)
+plot(lm(y ~ x), which = 1:3)
+par(mfrow=c(1, 1))
+```
+Estos gráficos nos permiten comprobar que los residuos no se ajustan a una distribución normal. En el gráfico QQ vemos como los puntos no se distribuyen sobre la diagonal sobre la que deberían estar en caso de tratarse de una distribución normal.
+
+# Clasificación
+
+Para terminar, probaremos a ajustar dos modelos de clasificación para predecir cuando llueve al dia siguiente. Primero comprobamos si tenemos correlaciones lineales entre las variables de entrada, mostradas en la siguiente figura.
+
+```{r}
+numvars <- sapply(datos, class) %in% c("integer","numeric")
+C <- cor(datos[,numvars])
+corrplot::corrplot(C, method = "circle")
+```
+
+Vemos como las variables *MaxTemp* y *MinTemp*, *Pressure9am* y *Pressure3pm*, *Humidity9am* y *Humidity3pm* o *Temp9am* y *Temp3pm* están altamente correlaciones. También tenemos correlaciones significativas entre las variables *WindGustSpeed*, *WindGust9am* y *WindGust3pm*, que dejaremos en el *dataset* porque no están suficientemente correlacionadas para poder explicar con una de ellas las otras dos. De este modo, quitaremos las siguientes variables:
+
+```{r}
+datos <- datos %>% select(-MaxTemp, -Temp9am, -MinTemp, -Humidity9am, -Pressure9am)
+```
+
+Quitamos otras variables que no nos interesa tener en cuenta para el modelo, como la fecha, lugar o dirección del viento.
+
+```{r}
+datos <- datos %>% select(-Date, -Location, -WindDir9am, -WindDir3pm, -WindGustDir)
+```
+
+
+Empezaremos con un modelo de árbol de decisiones, que nos ayudará a determinar aquellas variables más relevantes para nuestro ajuste. En este caso, hemos balanceado las clases en el *training* *set*.
+
+
+```{r}
+set.seed(150)
+trainIndex <- createDataPartition(datos$RainTomorrow, p = 0.8,      
+                                  list = FALSE, times = 1)    
+
+# Datos entrenamiento y test
+fTR <- datos[trainIndex,]
+fTS <- datos[-trainIndex,]
+
+table(fTR$RainTomorrow)
+```
+```{r}
+# Under sampling
+fTR <- ovun.sample(RainTomorrow~., data = fTR, method = "under", N = 30000)$data
+
+fTR_eval <- fTR
+fTS_eval <- fTS
+
+table(fTR$RainTomorrow)
+```
+
+Seleccionamos los *inputs* para predecir si llueve al dia siguiente y ajustamos el modelo. 
+
+```{r}
+library(xtable)
+#Cross validation
+ctrl <- trainControl(method = "cv",                        
+                     number = 10,                          
+                     summaryFunction = defaultSummary,     
+                     classProbs = TRUE)                   
+
+inputs <- fTR %>% select(-RainTomorrow, -Rainfall, -Cloud)
+
+set.seed(150)
+tree.fit <- train(x = inputs,  
+                  y = fTR$RainTomorrow, 
+                  method = "rpart",   
+                  control = rpart.control(minsplit = 5,  
+                                          minbucket = 5), 
+                  parms = list(split = "gini"),         
+                  tuneGrid = data.frame(cp = seq(0,0.1,0.0005)),
+                  trControl = ctrl, 
+                  metric = "Accuracy")
+```
+
+Viendo la importancia de las variables del modelo, nos damos cuenta de que la temperatura y la velocidad del viento no ayudan a explicar cuando llueve y cuando no, al menos de forma lineal.
+
+
+```{r}
+#Measure for variable importance
+plot(varImp(tree.fit,scale = FALSE))
+```
+
+Descartamos estas variables y ajustamos un modelo de regresión logística,
+
+```{r}
+set.seed(150)
+LogReg.fit <- train(form = RainTomorrow ~ . -Cloud -WindSpeed9am
+                    -WindSpeed3pm -Temp3pm, 
+                    data = fTR,               
+                    method = "glm",                   
+                    preProcess = c("center","scale"), 
+                    trControl = ctrl,                 
+                    metric = "Accuracy")  
+```
+
+Obtenemos que todas tienen un p-valor por debajo del 0.05, por lo que son significativos para el modelo.
+
+```{r}
+summary(LogReg.fit)
+```
+
+Finalmente, realizaremos un pequeño diagnostico del modelo. Predecimos las clases en base al modelo de regresión logística.
+
+```{r}
+#test
+fTS_eval$LRprob <- predict(LogReg.fit, type="prob", newdata = fTS) # predict probabilities
+fTS_eval$LRpred <- predict(LogReg.fit, type="raw", newdata = fTS) # predict classes 
+
+```
+
+Y calculamos la matriz de confusión del *test* *set*. Hemos obtenido una *accuracy*
+del 79%.
+```{r}
+(confusionMatrix(fTS_eval$LRpred, 
+                fTS_eval$RainTomorrow, 
+                positive = "Yes") -> tablaCon)
+```
+
+La matriz de confusión es la tabla de contingencia de los valores predichos por el modelo. En ella se ve la predicción de cuando va a llover frente a cuando realmente llueve. Es decir, podemos ver los positivos y negativos reales y los falsos positivos y negativos. Vemos que tanto para cuando llueve como para cuando no, el modelo predice el valor de referencia con un 80% de acierto (sensitividad y especificidad). Esto mismo, lo vemos representado en el siguiente gráfico tipo mosaico.
+
+```{r}
+TablaContingencia <- t(tablaCon$table)
+mosaicplot(TablaContingencia, las = 1, col=terrain.colors(nlevels(TablaContingencia)))
+```
+
+
