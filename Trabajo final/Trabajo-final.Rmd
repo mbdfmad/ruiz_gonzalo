@@ -3,18 +3,13 @@ title: "Proyecto Final de Curso"
 author: "Nicolás Núñez de Cela Román, Gonzalo Ruiz Espinar y Pablo Soriano González"
 date: "04/12/2021"
 output:
-  github_document
+  # github_document
+  html_document:
     toc: yes
     toc_depth: 3
     number_sections: yes
     theme: united
     highlight: tango
-  # html_document:
-  #   toc: yes
-  #   toc_depth: 3
-  #   number_sections: yes
-  #   theme: united
-  #   highlight: tango
   # pdf_document:
   #   toc: yes
   #   toc_depth: 3
